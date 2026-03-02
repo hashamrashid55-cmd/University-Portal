@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Student Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="flex h-screen overflow-hidden">
+        <aside class="sidebar">
+            <div class="h-16 flex items-center px-6 bg-slate-950"><span class="font-bold text-xl text-white">NUCES <span class="text-blue-500">Portal</span></span></div>
+            <div class="p-6 border-b border-slate-800 bg-slate-900">
+                <p class="text-xs text-slate-500 uppercase font-bold mb-1">Current User</p>
+                <p class="text-sm font-bold text-white" id="nav-user-name">User</p>
+                <p class="text-xs text-blue-400 mt-1" id="nav-user-role">Student</p>
+            </div>
+            <nav class="flex-1 py-4 space-y-1">
+                <button onclick="renderDash()" class="nav-item active"><i class="fas fa-user-graduate w-5"></i> Dashboard</button>
+                <button onclick="renderAtt()" class="nav-item"><i class="fas fa-calendar-days w-5"></i> Attendance</button>
+                <button onclick="renderMarks()" class="nav-item"><i class="fas fa-file-pen w-5"></i> My Marks</button>
+                <button onclick="renderTrans()" class="nav-item"><i class="fas fa-file-invoice w-5"></i> Transcript</button>
+            </nav>
+            <div class="p-4 border-t border-slate-800 bg-slate-900"><button onclick="utils.logout()" class="nav-item text-slate-400 hover:text-white"><i class="fas fa-sign-out-alt w-5"></i> Log Out</button></div>
+        </aside>
+        <main class="flex-1 overflow-y-auto bg-slate-100 p-6 md:p-10" id="content-area"></main>
+    </div>
+
+    <script src="logic.js"></script>
+    <script>
+        const currentUser = utils.checkAuth('student');
+
+        function renderDash() {
+            const courses = db.getStudentCourses(currentUser.id).map(c => `<li class="py-3 flex justify-between"><span>${c.name}</span><span class="bg-blue-50 text-blue-700 text-xs px-2 py-1 rounded border">${c.code}</span></li>`).join('');
+            document.getElementById('content-area').innerHTML = `<div class="stat-card fade-in"><h3 class="font-bold text-slate-700 mb-4 border-b pb-2">Enrolled Courses</h3><ul class="divide-y">${courses}</ul></div>`;
+        }
+
+        function renderAtt() {
+            const rows = db.getStudentCourses(currentUser.id).map(c => {
+                const r = db.getStudentAttendance(currentUser.id, c.code);
+                const p = r.filter(x => x.status === 'P').length;
+                const perc = r.length ? Math.round((p/r.length)*100) : 0;
+                return `<tr><td>${c.code}</td><td>${c.name}</td><td>${r.length}</td><td>${p}</td><td class="font-bold ${perc>=75?'text-green-600':'text-red-600'}">${perc}%</td></tr>`;
+            }).join('');
+            document.getElementById('content-area').innerHTML = `<div class="bg-white rounded shadow-sm border overflow-hidden fade-in"><table><thead><tr><th>Code</th><th>Name</th><th>Total</th><th>Present</th><th>%</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        }
+
+        function renderMarks() {
+            const opts = db.getStudentCourses(currentUser.id).map(c => `<option value="${c.code}">${c.code}</option>`).join('');
+            document.getElementById('content-area').innerHTML = `
+                <div class="fade-in">
+                    <div class="mb-6"><h2 class="text-2xl font-bold">My Marks</h2></div>
+                    <div class="stat-card mb-6 flex gap-4"><select id="mk-course" class="flex-grow"><option value="">Select Course</option>${opts}</select><button onclick="showMarks()" class="bg-blue-900 text-white px-6 rounded">View</button></div>
+                    <div id="mk-display" class="hidden space-y-6"></div>
+                </div>
+            `;
+        }
+
+        function showMarks() {
+            const code = document.getElementById('mk-course').value;
+            if(!code) return;
+            const dis = document.getElementById('mk-display');
+            dis.classList.remove('hidden');
+            const asses = db.getAssessments(code);
+            if(!asses.length) { dis.innerHTML = '<div class="p-4 bg-white border text-center">No marks yet</div>'; return; }
+
+            let html = '';
+            let gt = 0, go = 0;
+            ['Quiz','Assignment','Midterm','Final Exam'].forEach(type => {
+                const fil = asses.filter(a => a.type === type);
+                if(fil.length) {
+                    let r = '';
+                    fil.forEach(a => {
+                        const o = db.getObtainedMarks(a.id, currentUser.id);
+                        gt+=a.totalMarks; go+=o;
+                        r += `<tr class="border-b"><td class="p-3">${a.title}</td><td class="p-3 text-right">${a.totalMarks}</td><td class="p-3 text-right font-bold text-blue-700">${o}</td></tr>`;
+                    });
+                    html += `<div class="bg-white rounded border overflow-hidden"><div class="bg-slate-50 px-4 py-2 font-bold text-sm uppercase">${type}</div><table class="w-full"><tbody>${r}</tbody></table></div>`;
+                }
+            });
+            dis.innerHTML = `<div class="bg-slate-800 text-white p-6 rounded flex justify-between"><div><h3 class="font-bold">Total</h3><p class="opacity-70">${code}</p></div><div class="text-right text-3xl font-bold">${go} <span class="text-xl opacity-60">/ ${gt}</span></div></div>` + html;
+        }
+
+        function renderTrans() {
+            let tp = 0, tc = 0;
+            const rows = db.getStudentCourses(currentUser.id).map(c => {
+                const g = db.getStudentGrade(currentUser.id, c.code);
+                if(g) { tp += (g.gradePoint * c.credits); tc += c.credits; }
+                return `<tr><td>${c.code}</td><td>${c.name}</td><td class="text-center">${c.credits}</td><td class="text-center font-bold">${g?g.grade:'IP'}</td><td class="text-center">${g?parseFloat(g.gradePoint).toFixed(2):'-'}</td></tr>`;
+            }).join('');
+            const gpa = tc ? (tp/tc).toFixed(2) : '0.00';
+            
+            document.getElementById('content-area').innerHTML = `
+                <div class="flex flex-col md:flex-row gap-6 fade-in">
+                    <div class="flex-grow bg-white rounded shadow-sm border overflow-hidden"><table><thead><tr><th>Code</th><th>Title</th><th class="text-center">Cr</th><th class="text-center">G</th><th class="text-center">Pts</th></tr></thead><tbody>${rows}</tbody></table></div>
+                    <div class="w-full md:w-72 flex-shrink-0"><div class="stat-card bg-slate-800 text-white border-none"><h3 class="text-sm font-bold opacity-70 mb-4">SGPA</h3><p class="text-4xl font-bold text-blue-400 mb-6">${gpa}</p><div class="border-t border-slate-700 pt-4 text-sm flex justify-between"><span>Credits</span><span>${tc}</span></div></div></div>
+                </div>
+            `;
+        }
+        
+        renderDash();
+    </script>
+</body>
+</html>
